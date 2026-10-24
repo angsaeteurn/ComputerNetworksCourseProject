@@ -3,7 +3,7 @@ import socket
 
 
 # IP = "192.168.1.101" #"localhost"
-IP = "localhost"
+IP = "10.200.102.158"
 PORT = 4450
 ADDR = (IP,PORT)
 SIZE = 1024 ## byte .. buffer size
