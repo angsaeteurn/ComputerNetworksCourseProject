@@ -40,17 +40,3 @@ else:
     plt.tight_layout()
     plt.savefig("transfer_speeds.png")
     plt.show()
-
-    # Graph 2: Upload and Download Times
-    plt.figure(figsize=(9, 5))
-    plt.bar(files, times)
-
-    plt.title("Upload and Download Transfer Times")
-    plt.xlabel("File Transfers")
-    plt.ylabel("Time (seconds)")
-
-    plt.tight_layout()
-    plt.savefig("transfer_times.png")
-    plt.show()
-
-    print("Graphs created successfully!")
