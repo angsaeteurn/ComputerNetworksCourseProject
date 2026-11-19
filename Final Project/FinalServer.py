@@ -1,10 +1,10 @@
-
 import os
 import socket
 import threading
 import time
+import analysis
 
-IP = "192.168.1.245"
+IP = "0.0.0.0"
 PORT = 4450
 ADDR = (IP, PORT)
 SIZE = 1024
@@ -24,8 +24,7 @@ def get_path(filename):
     return path
 
 
-def receive_file(conn, filename, file_size):
-
+def receive_file(conn, filename, file_size, client):
     path = get_path(filename)
 
     if path is None:
@@ -37,9 +36,7 @@ def receive_file(conn, filename, file_size):
 
     try:
         with open(path, "wb") as file:
-
             while received < file_size:
-
                 chunk = conn.recv(min(SIZE, file_size - received))
 
                 if not chunk:
@@ -54,19 +51,21 @@ def receive_file(conn, filename, file_size):
         raise
 
     end = time.perf_counter()
-
     transfer_time = end - start
-    speed = (file_size / (1024 * 1024)) / transfer_time if transfer_time > 0 else 0
+
+    speed = (file_size / 1000000) / transfer_time if transfer_time > 0 else 0
 
     print(f"Uploaded: {filename}")
     print(f"Time: {transfer_time:.2f} seconds")
     print(f"Speed: {speed:.2f} MB/s")
 
+    analysis.save_results("Upload", filename, file_size,
+                          transfer_time, client=client)
+
     conn.sendall("OK@Upload complete".encode(FORMAT))
 
 
-def send_file(conn, filename):
-
+def send_file(conn, filename, client):
     path = get_path(filename)
 
     if path is None or not os.path.isfile(path):
@@ -74,15 +73,19 @@ def send_file(conn, filename):
         return
 
     file_size = os.path.getsize(path)
-
     conn.sendall(f"OK@{file_size}".encode(FORMAT))
+
+    # Wait until the client is ready to receive the file
+    answer = conn.recv(SIZE).decode(FORMAT)
+
+    if answer != "READY":
+        print("Download cancelled")
+        return
 
     start = time.perf_counter()
 
     with open(path, "rb") as file:
-
         while True:
-
             chunk = file.read(SIZE)
 
             if not chunk:
@@ -91,18 +94,19 @@ def send_file(conn, filename):
             conn.sendall(chunk)
 
     end = time.perf_counter()
-
     transfer_time = end - start
-    speed = (file_size / (1024 * 1024)) / transfer_time if transfer_time > 0 else 0
+
+    speed = (file_size / 1000000) / transfer_time if transfer_time > 0 else 0
 
     print(f"Downloaded: {filename}")
     print(f"Time: {transfer_time:.2f} seconds")
     print(f"Speed: {speed:.2f} MB/s")
 
+    analysis.save_results("Download", filename, file_size,
+                          transfer_time, client=client)
 
-### to handle the clients
+
 def handle_client(conn, addr):
-
     print(f"[NEW CONNECTION] {addr} connected.")
     conn.sendall("OK@Welcome to the server".encode(FORMAT))
 
@@ -115,7 +119,6 @@ def handle_client(conn, addr):
 
             data = received_data.decode(FORMAT).split("@")
             cmd = data[0]
-
             send_data = "OK@"
 
             if cmd == "LOGOUT":
@@ -126,7 +129,6 @@ def handle_client(conn, addr):
                 conn.sendall(send_data.encode(FORMAT))
 
             elif cmd == "UPLOAD":
-
                 filename = data[1]
                 file_size = int(data[2])
                 path = get_path(filename)
@@ -136,7 +138,6 @@ def handle_client(conn, addr):
                     continue
 
                 if os.path.exists(path):
-
                     conn.sendall("EXISTS".encode(FORMAT))
 
                     answer = conn.recv(SIZE).decode(FORMAT)
@@ -146,15 +147,13 @@ def handle_client(conn, addr):
                         continue
 
                 conn.sendall("READY".encode(FORMAT))
-                receive_file(conn, filename, file_size)
+                receive_file(conn, filename, file_size, str(addr))
 
             elif cmd == "DOWNLOAD":
-
                 filename = data[1]
-                send_file(conn, filename)
+                send_file(conn, filename, str(addr))
 
             elif cmd == "DELETE":
-
                 filename = data[1]
                 path = get_path(filename)
 
@@ -167,13 +166,11 @@ def handle_client(conn, addr):
                 conn.sendall(send_data.encode(FORMAT))
 
             elif cmd == "DIR":
-
                 files = os.listdir(SERVER_PATH)
                 send_data += "\n".join(files)
                 conn.sendall(send_data.encode(FORMAT))
 
             elif cmd == "SUBFOLDER":
-
                 action = data[1]
                 folder = data[2]
                 path = get_path(folder)
@@ -187,7 +184,6 @@ def handle_client(conn, addr):
                     send_data += "Folder created"
 
                 elif action == "DELETE":
-
                     if os.path.isdir(path):
                         os.rmdir(path)
                         send_data += "Folder deleted"
@@ -210,11 +206,14 @@ def handle_client(conn, addr):
 def main():
     print("Starting the server")
 
+    analysis.start_analysis()
+
     server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     server.bind(ADDR)
     server.listen()
 
-    print(f"Server is listening on {IP}: {PORT}")
+    print(f"Server is listening on {IP}:{PORT}")
 
     while True:
         conn, addr = server.accept()
